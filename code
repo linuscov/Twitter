@@ -8,15 +8,15 @@ library(tidyverse)
 # Define my token 
 my_token <- create_token(
   app = "Linus",
-  consumer_key = "DTSf2weqIBZGrSn7d0bmUTErV",
-  consumer_secret = "ZGaPg0yHLu2qYH4xRqlYlEiK43aYJSWySi306BHUDWsrUiQOwo",
-  access_token = "1123906066025205761-A5oneVF0DAkc3t2w6I0zYb4ZscfLrP",
-  access_secret = "SvTlFpU3HdpzpkiZFaNF57ig1L6jDNnvRak2mNxGIasR8",
+  consumer_key = "...",
+  consumer_secret = "...",
+  access_token = "...",
+  access_secret = "...",
   set_renv = TRUE
 )
 
 
-setwd("C:/Users/linus/OneDrive/Uni/Master/Social Theory/Group work")
+setwd("...")
 
 # create a list for NZ MPs 
 nz_members <- read.xlsx("Members.xlsx")
