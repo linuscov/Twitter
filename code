@@ -1,0 +1,71 @@
+# Install relevant packages 
+library("tidyverse")
+library("rtweet")
+library("openxlsx")
+library(peRspective)
+library(tidyverse)
+
+# Define my token 
+my_token <- create_token(
+  app = "Linus",
+  consumer_key = "DTSf2weqIBZGrSn7d0bmUTErV",
+  consumer_secret = "ZGaPg0yHLu2qYH4xRqlYlEiK43aYJSWySi306BHUDWsrUiQOwo",
+  access_token = "1123906066025205761-A5oneVF0DAkc3t2w6I0zYb4ZscfLrP",
+  access_secret = "SvTlFpU3HdpzpkiZFaNF57ig1L6jDNnvRak2mNxGIasR8",
+  set_renv = TRUE
+)
+
+
+setwd("C:/Users/linus/OneDrive/Uni/Master/Social Theory/Group work")
+
+# create a list for NZ MPs 
+nz_members <- read.xlsx("Members.xlsx")
+
+# Get the twitter names 
+nz_twitter_names <- nz_members$twitter_name
+# remove NAs 
+nz_twitter_names <- na.omit(nz_twitter_names)
+
+
+# Set n and an empty data frame for the following loop 
+n <- 1
+tweets <- as.data.frame(matrix(ncol = 90, nrow = 0))
+
+repeat{
+  tweets <- rbind(tweets, search_tweets(
+    q = nz_twitter_names[n],
+    n = 100, 
+    type = "recent", 
+    include_rts = F,
+    token = my_token))
+  n <- n + 1
+  if(n == length(nz_twitter_names)){
+    break
+  }
+} 
+# what the loop does: 
+# take the name from the nz_twitter_names vector on position n (first in the first round since n is set to 1), 
+# pull 100 tweets containing that name with the REST API 
+# add 1 to n 
+# do everthing again till n reaches amount of names that are in nz_twitter names 
+
+
+# get a "random" sample 
+tweets_sample <- sample_n(tweets, 100)
+
+# get the score for toxicity, and severe toxicity 
+toxic_scores <- tweets_sample %>%
+  prsp_stream(
+    text = text,
+    text_id = status_id,
+    languages = "en",
+    score_model = c("TOXICITY", "SEVERE_TOXICITY"),
+    safe_output = TRUE
+  )
+
+
+# plot the desitiy of toxicity 
+library(ggplot2)
+
+ggplot(toxic_scores, aes(x= TOXICITY))+
+  geom_density()
