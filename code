@@ -1,71 +1,266 @@
-# Install relevant packages 
 library("tidyverse")
 library("rtweet")
 library("openxlsx")
 library(peRspective)
 library(tidyverse)
 
-# Define my token 
+
 my_token <- create_token(
   app = "Linus",
-  consumer_key = "...",
-  consumer_secret = "...",
-  access_token = "...",
-  access_secret = "...",
+  consumer_key = "DTSf2weqIBZGrSn7d0bmUTErV",
+  consumer_secret = "ZGaPg0yHLu2qYH4xRqlYlEiK43aYJSWySi306BHUDWsrUiQOwo",
+  access_token = "1123906066025205761-A5oneVF0DAkc3t2w6I0zYb4ZscfLrP",
+  access_secret = "SvTlFpU3HdpzpkiZFaNF57ig1L6jDNnvRak2mNxGIasR8",
   set_renv = TRUE
 )
 
+setwd("C:/Users/linus/OneDrive/Uni/Master/Social Theory/Group work")
 
-setwd("...")
+# Create a list for NZ MPs 
+members <- read.xlsx("Members.xlsx")
 
-# create a list for NZ MPs 
-nz_members <- read.xlsx("Members.xlsx")
-
-# Get the twitter names 
-nz_twitter_names <- nz_members$twitter_name
-# remove NAs 
-nz_twitter_names <- na.omit(nz_twitter_names)
+twitter_names <- members$twitter_name
+twitter_names <- na.omit(twitter_names)
 
 
-# Set n and an empty data frame for the following loop 
+# Get tweets with the Rest API 
 n <- 1
 tweets <- as.data.frame(matrix(ncol = 90, nrow = 0))
 
 repeat{
   tweets <- rbind(tweets, search_tweets(
-    q = nz_twitter_names[n],
+    q = twitter_names[n],
     n = 100, 
     type = "recent", 
     include_rts = F,
     token = my_token))
   n <- n + 1
-  if(n == length(nz_twitter_names)){
+  if(n == length(twitter_names)){
     break
   }
 } 
-# what the loop does: 
-# take the name from the nz_twitter_names vector on position n (first in the first round since n is set to 1), 
-# pull 100 tweets containing that name with the REST API 
-# add 1 to n 
-# do everthing again till n reaches amount of names that are in nz_twitter names 
 
+save(tweets, file = "tweets.tue.Rda")
 
-# get a "random" sample 
-tweets_sample <- sample_n(tweets, 100)
+# keep only unique tweets 
+tweets.uni <- tweets %>%
+  distinct(status_id, .keep_all = TRUE)
 
-# get the score for toxicity, and severe toxicity 
-toxic_scores <- tweets_sample %>%
+# get scores for the tweets with perspective API
+toxic_scores <- tweets.uni %>%
   prsp_stream(
     text = text,
     text_id = status_id,
     languages = "en",
-    score_model = c("TOXICITY", "SEVERE_TOXICITY"),
+    score_model = c("TOXICITY", "SEVERE_TOXICITY", "IDENTITY_ATTACK", "INSULT", "SEXUALLY_EXPLICIT", "THREAT", "FLIRTATION"),
     safe_output = TRUE
   )
 
-
-# plot the desitiy of toxicity 
+# Plot toxicity distribution 
 library(ggplot2)
 
 ggplot(toxic_scores, aes(x= TOXICITY))+
   geom_density()
+
+
+head(arrange(tweets.scores, desc(toxicity)))
+
+names(toxic_scores) <- c("status_id", "error", "toxicity", "severe_toxicity", "identity_attack", "insult", "sexually_explicit", "threat", "flirtation")
+
+tweets.scores <- merge(toxic_scores, tweets.uni, "status_id")
+
+
+# Save tweets and scores 
+library(writexl)
+write_xlsx(tweets_sample[,c(2,5)], "tweets_sample.xlsx")
+write_xlsx(tweets.scores, "tweets.scores.xlsx")
+
+
+# take only 200 most toxic tweets 
+toxic.tweets <- tweets.scores %>%
+  arrange(desc(toxicity)) %>%
+  select(status_id, text) 
+
+toxic.tweets <- toxic.tweets[1:200,]
+
+# save toxic tweets 
+write.xlsx(toxic.tweets, "toxic.tweets.fullsmpl.xlsx")
+
+
+#######################################################################
+# ANALYSIS 
+
+
+# Load coding 
+toxic.tweets.linus <- read.xlsx("toxic.tweets.fullsmpl.linus.xlsx")
+toxic.tweets.yente <- read.xlsx("toxic.tweets.fullsmpl.yente.xlsx")
+toxic.tweets.michelle <- read.xlsx("toxic.tweets.fullsmpl.michelle.xlsx")
+
+# all same order 
+toxic.tweets.linus <- toxic.tweets.linus %>%
+  mutate(status_id = as.numeric(status_id)) %>%
+  arrange(status_id)
+
+toxic.tweets.yente <- toxic.tweets.yente %>%
+  mutate(status_id = as.numeric(status_id)) %>%
+  arrange(status_id)
+
+toxic.tweets.michelle <- toxic.tweets.michelle %>%
+  mutate(status_id = as.numeric(status_id)) %>%
+  arrange(status_id)
+
+# combine the values from all three coders 
+# -> if at least two coded a certain tweet as toxic, insult, identity insult 
+# it gets the value 1 if not it gets a 0 
+m <- toxic.tweets.linus[,2:4] + toxic.tweets.yente[,2:4] + toxic.tweets.michelle[,2:4]
+m[m<2] <- 0
+m[m>1] <- 1
+
+status_id <- toxic.tweets.linus$status_id
+
+toxic.tweets.all <- cbind(status_id, m)
+
+
+# Tokenize the text 
+library(quanteda)
+
+tokens <- tokens(toxic.tweets.linus$text, what = "word")
+tokens.dfm <- dfm(tokens, tolower = F)
+tokens.df <- as.data.frame(as.matrix(tokens.dfm))
+
+
+# Keep only twitter handle tokens 
+tokens.df <- tokens.df[, colnames(tokens.df) %in% members$Twitter.handle]
+
+# combine tokens with status_id 
+tokens.df <- cbind(status_id, tokens.df)
+
+tokens.coded <- inner_join(toxic.tweets.all, tokens.df, by = "status_id")
+
+# USE OF TOXICITY 
+# keep only tweets coded as toxic 
+tokens.coded.toxicity <- tokens.coded[tokens.coded$toxicity == 1, ]
+
+toxicity.MPs <- cbind(colnames(tokens.coded.toxicity[,5:48]), colSums(tokens.coded.toxicity[,5:48]))
+toxicity.MPs <- data.frame(toxicity.MPs)
+colnames(toxicity.MPs) <- c("Twitter.handle", "toxicity")
+
+# INSULTS 
+# keep only tweets coded as insult 
+tokens.coded.insult <- tokens.coded[tokens.coded$insult == 1, ]
+
+insults.MPs <- cbind(colnames(tokens.coded.insult[,5:48]), colSums(tokens.coded.insult[,5:48]))
+insults.MPs <- data.frame(insults.MPs)
+colnames(insults.MPs) <- c("Twitter.handle", "insult")
+
+# IDENTITY INSUSLTS 
+# keep only tweet coded as identity insult 
+tokens.coded.identity <- tokens.coded[tokens.coded$identity == 1, ]
+
+identity.MPs <- cbind(colnames(tokens.coded.identity[,5:48]), colSums(tokens.coded.identity[,5:48]))
+identity.MPs <- data.frame(identity.MPs)
+colnames(identity.MPs) <- c("Twitter.handle", "identity")
+
+
+# Check entire sample for share of female and male mentions 
+tokens.smpl <- tokens(toxic.tweets$text, what = "word")
+
+tokens.smpl.dfm <- dfm(tokens.smpl, tolower = F)
+
+tokens.smpl.df <- as.data.frame(as.matrix(tokens.smpl.dfm))
+
+
+# Keep only twitter handle tokens 
+tokens.smpl.df <- tokens.smpl.df[, colnames(tokens.smpl.df) %in% members$Twitter.handle]
+
+mentions.smpl <- as.data.frame(cbind(colnames(tokens.smpl.df), colSums(tokens.smpl.df)))
+
+colnames(mentions.smpl) <- c("Twitter.handle", "mentions.smpl")
+
+
+# Check entire data set for share of female and male mentions 
+tokens.full <- tokens(tweets.uni$text, what = "word")
+
+tokens.full.dfm <- dfm(tokens.full, tolower = F)
+
+tokens.full.df <- as.data.frame(as.matrix(tokens.full.dfm))
+
+
+# Keep only twitter handle tokens 
+tokens.full.df <- tokens.full.df[, colnames(tokens.full.df) %in% members$Twitter.handle]
+
+mentions.full <- as.data.frame(cbind(colnames(tokens.full.df), colSums(tokens.full.df)))
+
+colnames(mentions.full) <- c("Twitter.handle", "mentions.full")
+
+
+# add information to members data frame 
+members <- merge(members, toxicity.MPs, by = "Twitter.handle", all = T)
+members <- merge(members, insults.MPs, by = "Twitter.handle", all = T)
+members <- merge(members, identity.MPs, by = "Twitter.handle", all = T)
+members <- merge(members, mentions.smpl, by = "Twitter.handle", all = T)
+members <- merge(members, mentions.full, by = "Twitter.handle", all = T)
+
+members$toxicity <- as.numeric(members$toxicity)
+members$insult <- as.numeric(members$insult)
+members$identity <- as.numeric(members$identity)
+members$mentions.full <- as.numeric(members$mentions.full)
+members$mentions.smpl <- as.numeric(members$mentions.smpl)
+
+members <- members[,-c(2,8)]
+
+sum(na.omit(members[which(members$`Gender.(men.0,.women.1)` == 0), 12]))
+
+# share of insults for men 
+sum(na.omit(members[which(members$`Gender.(men.0,.women.1)` == 0), 8])) / sum(na.omit(members[which(members$`Gender.(men.0,.women.1)` == 0), 7]))
+# share of insults women 
+sum(na.omit(members[which(members$`Gender.(men.0,.women.1)` == 1), 8])) / sum(na.omit(members[which(members$`Gender.(men.0,.women.1)` == 1), 7]))
+
+
+# number of toxic tweets men 
+sum(na.omit(members[which(members$`Gender.(men.0,.women.1)` == 0), 7]))
+#[152]
+# number of toxic tweets women 
+sum(na.omit(members[which(members$`Gender.(men.0,.women.1)` == 1), 7]))
+#[105]
+
+# number of insutl tweets men 
+sum(na.omit(members[which(members$`Gender.(men.0,.women.1)` == 0), 8]))
+#[101]
+# number of toxic tweets women 
+sum(na.omit(members[which(members$`Gender.(men.0,.women.1)` == 1), 8]))
+#[61]
+
+# number of identity insult tweets men 
+sum(na.omit(members[which(members$`Gender.(men.0,.women.1)` == 0), 9]))
+#[10]
+# number of identity insult tweets women 
+sum(na.omit(members[which(members$`Gender.(men.0,.women.1)` == 1), 9]))
+#[11]
+
+# Fisher test for the share of identity insults
+fisher.test(matrix(c(10, 152-10, 11, 105-11), ncol=2), alternative = "less")
+
+# Fisher test for the share of insults
+fisher.test(matrix(c(105, 152-105, 61, 105-61), ncol=2), alternative = "less")
+
+
+# Comparison with perspective API 
+toxic.tweets.api <- tweets.scores %>%
+  arrange(desc(toxicity)) %>%
+  select(status_id, toxicity, insult, identity_attack) 
+
+toxic.tweets.api <- toxic.tweets.api[1:200,]
+
+toxic.tweets.api$status_id <- as.numeric(toxic.tweets.api$status_id) 
+
+toxic.tweets.api_score <- toxic.tweets.api %>% 
+  mutate(toxicity = case_when(toxicity >= 0.7 ~ 1, toxicity < 0.7 ~ 0)) %>% 
+  mutate(insult = case_when(insult >= 0.7 ~ 1, insult < 0.7 ~ 0)) %>% 
+  mutate(identity_attack = case_when(identity_attack >= 0.7 ~ 1, identity_attack < 0.7 ~ 0))
+
+#Run through Recal 
+
+
+
+
